@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>Terminal de ingreso — CMKA Palermo</title>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
   <style>
     :root {
       --ink:#0f172a; --muted:#64748b; --blue:#365ccf; --blue-dark:#2548b3;
@@ -46,8 +46,9 @@
       position:relative; min-height:350px; overflow:hidden; background:#0f172a;
       border:4px solid #fff; border-radius:22px; box-shadow:0 12px 32px rgba(15,23,42,.16);
     }
-    #reader,#reader video { min-height:350px; }
-    #reader video { width:100%!important; object-fit:cover; }
+    #cameraVideo {
+      display:block; width:100%; min-height:350px; object-fit:cover;
+    }
     .idle {
       position:absolute; inset:0; display:grid; place-items:center; pointer-events:none;
     }
@@ -78,7 +79,7 @@
       .header { gap:11px; padding:12px; }
       .logo-wrap,.logo { width:72px; height:72px; }
       .logo-wrap { flex-basis:72px; }
-      .scanner,#reader,#reader video { min-height:300px; }
+      .scanner,#cameraVideo { min-height:300px; }
     }
   </style>
 </head>
@@ -104,7 +105,8 @@
       <p id="instruction" class="instruction">Conectando con Atisha…</p>
 
       <div class="scanner">
-        <div id="reader"></div>
+        <video id="cameraVideo" playsinline muted></video>
+        <canvas id="scanCanvas" class="hidden"></canvas>
         <div id="idle" class="idle"><div class="corners"></div></div>
       </div>
 
@@ -124,7 +126,9 @@
     const BACKEND_URL =
       "https://script.google.com/macros/s/AKfycby31t3diG7XFVYUo301mPJ1yITPE9dVfGNIJOGgmfmeiUWhp0GVbgCrKX0jHg0xE5x5/exec";
 
-    let reader = null;
+    let cameraStream = null;
+    let scanAnimation = null;
+    let lastScanAt = 0;
     let readerActive = false;
     let processing = false;
     let terminalReady = false;
@@ -220,65 +224,70 @@
       setStatus("Preparando la cámara…");
 
       try {
-        if (!reader) {
-          reader = new Html5Qrcode("reader", {
-            formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-            experimentalFeatures: {
-              useBarCodeDetectorIfSupported: true
-            },
-            verbose: false
-          });
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("Este navegador no permite utilizar la cámara.");
+        }
+        if (typeof jsQR !== "function") {
+          throw new Error("No se pudo cargar el lector de códigos QR.");
         }
 
-        await reader.start(
-          { facingMode: "environment" },
-          {
-            // El detector analiza todo el video. El marco es solamente una guía
-            // visual, por lo que no hace falta mover el QR para encontrar una
-            // pequeña zona interna de lectura.
-            fps: 12,
-            disableFlip: false
-          },
-          onQrRead,
-          () => {}
-        );
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
 
-        // Una vez abierta, pedimos una resolución nítida pero suficientemente
-        // liviana para que la decodificación pueda trabajar en tiempo real.
+        const video = $("cameraVideo");
+        video.srcObject = cameraStream;
+        await video.play();
+
+        // Solicitamos enfoque continuo y un poco de zoom solamente cuando la
+        // cámara informa que esas funciones están disponibles.
         try {
-          const video = document.querySelector("#reader video");
-          const track = video && video.srcObject
-            ? video.srcObject.getVideoTracks()[0]
-            : null;
+          const track = cameraStream.getVideoTracks()[0];
 
           if (track && typeof track.applyConstraints === "function") {
             const capabilities = typeof track.getCapabilities === "function"
               ? track.getCapabilities()
               : {};
-            const constraints = {
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            };
+            const advanced = [];
 
             if (
               Array.isArray(capabilities.focusMode) &&
               capabilities.focusMode.includes("continuous")
             ) {
-              constraints.advanced = [{ focusMode: "continuous" }];
+              advanced.push({ focusMode: "continuous" });
             }
 
-            await track.applyConstraints(constraints);
+            if (
+              capabilities.zoom &&
+              Number.isFinite(capabilities.zoom.min) &&
+              Number.isFinite(capabilities.zoom.max)
+            ) {
+              const zoom = Math.min(
+                capabilities.zoom.max,
+                Math.max(capabilities.zoom.min, 1.5)
+              );
+              advanced.push({ zoom });
+            }
+
+            if (advanced.length) {
+              await track.applyConstraints({ advanced });
+            }
           }
         } catch (_) {
-          // Algunas webcams no permiten cambiar resolución o enfoque.
-          // En ese caso se conserva automáticamente la configuración disponible.
+          // Si la cámara no ofrece enfoque o zoom, se usa su configuración normal.
         }
 
         readerActive = true;
-        $("idle").classList.add("hidden");
         $("cameraButton").classList.add("hidden");
-        setStatus("Cámara lista");
+        setStatus("Cámara lista · lector jsQR");
+        startScanLoop();
       } catch (error) {
+        await stopCamera();
         readerActive = false;
         $("cameraButton").classList.remove("hidden");
         showMessage(
@@ -292,17 +301,61 @@
 
     async function stopCamera() {
       clearTimeout(restartTimer);
-      if (!reader || !readerActive) return;
-      try { await reader.stop(); } catch (_) {}
+      if (scanAnimation) {
+        cancelAnimationFrame(scanAnimation);
+        scanAnimation = null;
+      }
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+      }
+      const video = $("cameraVideo");
+      video.pause();
+      video.srcObject = null;
       readerActive = false;
-      $("idle").classList.remove("hidden");
+    }
+
+    function startScanLoop() {
+      if (scanAnimation) cancelAnimationFrame(scanAnimation);
+      lastScanAt = 0;
+      scanAnimation = requestAnimationFrame(scanFrame);
+    }
+
+    function scanFrame(timestamp) {
+      if (!readerActive) return;
+      scanAnimation = requestAnimationFrame(scanFrame);
+
+      // Ocho lecturas por segundo dan buena respuesta sin sobrecargar la tablet.
+      if (processing || timestamp - lastScanAt < 125) return;
+
+      const video = $("cameraVideo");
+      if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+      lastScanAt = timestamp;
+
+      const canvas = $("scanCanvas");
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      const scale = Math.min(1, 960 / video.videoWidth);
+      const targetWidth = Math.max(1, Math.round(video.videoWidth * scale));
+      const targetHeight = Math.max(1, Math.round(video.videoHeight * scale));
+
+      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+      }
+
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const frame = context.getImageData(0, 0, canvas.width, canvas.height);
+      const result = jsQR(frame.data, frame.width, frame.height, {
+        inversionAttempts: "attemptBoth"
+      });
+
+      if (result && result.data) onQrRead(result.data);
     }
 
     function onQrRead(code) {
       if (processing || !terminalReady) return;
       processing = true;
       setStatus("Buscando practicante…");
-      try { reader.pause(true); } catch (_) {}
 
       jsonp("identificar", { codigoQr: code })
         .then(response => {
@@ -319,14 +372,7 @@
       restartTimer = setTimeout(() => {
         hideMessage();
         processing = false;
-        setStatus("Cámara lista");
-        try {
-          reader.resume();
-        } catch (_) {
-          readerActive = false;
-          $("cameraButton").classList.remove("hidden");
-          startCamera();
-        }
+        setStatus("Cámara lista · lector jsQR");
       }, 3500);
     }
 
