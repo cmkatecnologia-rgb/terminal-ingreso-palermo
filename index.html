@@ -231,21 +231,22 @@
         }
 
         await reader.start(
-          {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            advanced: [
-              { focusMode: "continuous" }
-            ]
-          },
+          { facingMode: "environment" },
           {
             fps: 20,
             qrbox: (width, height) => {
               const side = Math.floor(Math.min(width, height) * .90);
               return { width: side, height: side };
             },
-            disableFlip: false
+            disableFlip: false,
+            videoConstraints: {
+              facingMode: "environment",
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              advanced: [
+                { focusMode: "continuous" }
+              ]
+            }
           },
           onQrRead,
           () => {}
