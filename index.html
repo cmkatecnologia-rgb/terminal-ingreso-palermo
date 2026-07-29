@@ -233,19 +233,18 @@
         await reader.start(
           { facingMode: "environment" },
           {
-            fps: 20,
-            qrbox: (width, height) => {
-              const side = Math.floor(Math.min(width, height) * .90);
-              return { width: side, height: side };
-            },
+            // El detector analiza todo el video. El marco es solamente una guía
+            // visual, por lo que no hace falta mover el QR para encontrar una
+            // pequeña zona interna de lectura.
+            fps: 12,
             disableFlip: false
           },
           onQrRead,
           () => {}
         );
 
-        // Una vez abierta, pedimos mejor resolución y enfoque sin interferir
-        // con la validación interna de html5-qrcode.
+        // Una vez abierta, pedimos una resolución nítida pero suficientemente
+        // liviana para que la decodificación pueda trabajar en tiempo real.
         try {
           const video = document.querySelector("#reader video");
           const track = video && video.srcObject
@@ -253,13 +252,22 @@
             : null;
 
           if (track && typeof track.applyConstraints === "function") {
-            await track.applyConstraints({
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-              advanced: [
-                { focusMode: "continuous" }
-              ]
-            });
+            const capabilities = typeof track.getCapabilities === "function"
+              ? track.getCapabilities()
+              : {};
+            const constraints = {
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            };
+
+            if (
+              Array.isArray(capabilities.focusMode) &&
+              capabilities.focusMode.includes("continuous")
+            ) {
+              constraints.advanced = [{ focusMode: "continuous" }];
+            }
+
+            await track.applyConstraints(constraints);
           }
         } catch (_) {
           // Algunas webcams no permiten cambiar resolución o enfoque.
