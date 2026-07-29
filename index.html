@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>Terminal de ingreso — CMKA Palermo</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    :root {
+      --ink:#0f172a; --muted:#64748b; --blue:#365ccf; --blue-dark:#2548b3;
+      --blue-soft:#eef2ff; --line:#dce4f0; --success:#177a49;
+      --success-soft:#eaf8f0; --error:#b42318; --error-soft:#fff0ee;
+    }
+    * { box-sizing:border-box; }
+    html,body { min-height:100%; margin:0; }
+    body {
+      background:radial-gradient(circle at top left,rgba(86,112,211,.12),transparent 34rem),#f1f5f9;
+      color:var(--ink); font-family:Arial,Helvetica,sans-serif;
+    }
+    button { font:inherit; }
+    .shell { min-height:100dvh; display:grid; place-items:center; padding:18px; }
+    .terminal { width:min(760px,100%); }
+    .header {
+      display:flex; align-items:center; gap:18px; padding:16px 18px;
+      background:var(--blue-soft); border:1px solid #c7d2fe; border-radius:18px;
+    }
+    .logo-wrap { width:96px; height:96px; flex:0 0 96px; display:grid; place-items:center; }
+    .logo { display:none; width:96px; height:96px; object-fit:contain; }
+    .logo-fallback { color:var(--blue-dark); font-size:18px; font-weight:800; letter-spacing:.08em; }
+    h1 { margin:0; font-size:clamp(28px,5vw,44px); line-height:1.05; letter-spacing:-.035em; }
+    .header p { margin:7px 0 0; color:#334155; font-size:clamp(15px,2.3vw,18px); }
+    .activity {
+      margin-top:14px; padding:16px 20px; display:grid; gap:6px; text-align:center;
+      background:#fff; border:1px solid var(--line); border-radius:17px;
+    }
+    .activity span {
+      color:var(--muted); font-size:13px; font-weight:800;
+      letter-spacing:.09em; text-transform:uppercase;
+    }
+    .activity strong { font-size:clamp(23px,4vw,34px); line-height:1.15; }
+    .instruction {
+      margin:17px 0 10px; color:#334155; text-align:center;
+      font-size:clamp(17px,2.7vw,21px); font-weight:700;
+    }
+    .scanner {
+      position:relative; min-height:350px; overflow:hidden; background:#0f172a;
+      border:4px solid #fff; border-radius:22px; box-shadow:0 12px 32px rgba(15,23,42,.16);
+    }
+    #reader,#reader video { min-height:350px; }
+    #reader video { width:100%!important; object-fit:cover; }
+    .idle {
+      position:absolute; inset:0; display:grid; place-items:center; pointer-events:none;
+    }
+    .corners {
+      width:min(260px,58vw); aspect-ratio:1; border:3px solid rgba(255,255,255,.76);
+      border-radius:24px; box-shadow:0 0 0 999px rgba(15,23,42,.18);
+    }
+    .btn {
+      width:100%; margin-top:14px; padding:15px 18px; border-radius:13px;
+      font-size:19px; font-weight:800; cursor:pointer;
+    }
+    .primary { color:#fff; background:var(--blue); border:0; }
+    .primary:hover { background:var(--blue-dark); }
+    .secondary { color:var(--blue-dark); background:#fff; border:1px solid #aab9e9; }
+    .hidden { display:none!important; }
+    .message {
+      display:none; margin-top:14px; padding:18px; border:2px solid;
+      border-radius:17px; text-align:center;
+    }
+    .message.visible { display:block; }
+    .message strong { display:block; font-size:clamp(23px,3.8vw,30px); }
+    .message p { margin:7px 0 0; font-size:16px; line-height:1.45; }
+    .message.success { color:var(--success); background:var(--success-soft); border-color:#84d2a7; }
+    .message.error { color:var(--error); background:var(--error-soft); border-color:#f3aaa2; }
+    .status { min-height:22px; margin-top:10px; color:var(--muted); text-align:center; font-size:14px; }
+    @media(max-width:560px) {
+      .shell { padding:9px; place-items:start center; }
+      .header { gap:11px; padding:12px; }
+      .logo-wrap,.logo { width:72px; height:72px; }
+      .logo-wrap { flex-basis:72px; }
+      .scanner,#reader,#reader video { min-height:300px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="terminal">
+      <header class="header">
+        <div class="logo-wrap">
+          <img id="logo" class="logo" alt="CMKA">
+          <div id="logoFallback" class="logo-fallback">CMKA</div>
+        </div>
+        <div>
+          <h1>Terminal de ingreso</h1>
+          <p>Centro de Meditación Kadampa Argentina · Palermo</p>
+        </div>
+      </header>
+
+      <section class="activity" aria-live="polite">
+        <span>Actividad activa</span>
+        <strong id="activityTitle">Cargando…</strong>
+      </section>
+
+      <p id="instruction" class="instruction">Conectando con Atisha…</p>
+
+      <div class="scanner">
+        <div id="reader"></div>
+        <div id="idle" class="idle"><div class="corners"></div></div>
+      </div>
+
+      <button id="cameraButton" class="btn primary hidden" type="button">Activar cámara</button>
+      <button id="refreshButton" class="btn secondary hidden" type="button">Actualizar configuración</button>
+
+      <section id="message" class="message" role="status">
+        <strong id="messageTitle"></strong>
+        <p id="messageDetail"></p>
+      </section>
+
+      <div id="status" class="status">Preparando la terminal…</div>
+    </section>
+  </main>
+
+  <script>
+    const BACKEND_URL =
+      "https://script.google.com/macros/s/AKfycby31t3diG7XFVYUo301mPJ1yITPE9dVfGNIJOGgmfmeiUWhp0GVbgCrKX0jHg0xE5x5/exec";
+
+    let reader = null;
+    let readerActive = false;
+    let processing = false;
+    let terminalReady = false;
+    let restartTimer = null;
+
+    const $ = id => document.getElementById(id);
+
+    document.addEventListener("DOMContentLoaded", () => {
+      $("cameraButton").addEventListener("click", startCamera);
+      $("refreshButton").addEventListener("click", loadState);
+      loadLogo();
+      loadState();
+    });
+
+    function jsonp(action, params = {}) {
+      return new Promise((resolve, reject) => {
+        const callback = "terminalCb_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+        const script = document.createElement("script");
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error("La conexión con Atisha tardó demasiado."));
+        }, 15000);
+
+        function cleanup() {
+          clearTimeout(timer);
+          script.remove();
+          try { delete window[callback]; } catch (_) {}
+        }
+
+        window[callback] = data => {
+          cleanup();
+          resolve(data);
+        };
+
+        const query = new URLSearchParams({ action, callback, _: String(Date.now()), ...params });
+        script.src = BACKEND_URL + "?" + query.toString();
+        script.onerror = () => {
+          cleanup();
+          reject(new Error("No se pudo conectar con Atisha."));
+        };
+        document.body.appendChild(script);
+      });
+    }
+
+    async function loadLogo() {
+      try {
+        const response = await jsonp("logo");
+        if (!response.ok || !response.dataUrl) return;
+        $("logo").src = response.dataUrl;
+        $("logo").style.display = "block";
+        $("logoFallback").classList.add("hidden");
+      } catch (_) {}
+    }
+
+    async function loadState() {
+      hideMessage();
+      $("refreshButton").classList.add("hidden");
+      setStatus("Conectando con Atisha…");
+      $("instruction").textContent = "Consultando la actividad activa…";
+
+      try {
+        const state = await jsonp("estado");
+        $("activityTitle").textContent = state.tituloClase || "Sin actividad seleccionada";
+        terminalReady = Boolean(state.habilitada && state.idEventoClase);
+
+        if (!terminalReady) {
+          await stopCamera();
+          $("instruction").textContent = "La terminal todavía no está disponible";
+          $("cameraButton").classList.add("hidden");
+          $("refreshButton").classList.remove("hidden");
+          setStatus("Configurá la terminal desde Atisha");
+          return;
+        }
+
+        $("instruction").textContent = "Mostrá tu código QR frente a la cámara";
+        $("cameraButton").classList.remove("hidden");
+        setStatus("Terminal preparada");
+
+        // Intentamos abrirla automáticamente. Si el navegador exige un toque,
+        // queda disponible el botón “Activar cámara”.
+        startCamera();
+      } catch (error) {
+        terminalReady = false;
+        showMessage(false, "No pudimos conectar con Atisha", error.message);
+        $("refreshButton").classList.remove("hidden");
+      }
+    }
+
+    async function startCamera() {
+      if (!terminalReady || readerActive || processing) return;
+
+      hideMessage();
+      setStatus("Preparando la cámara…");
+
+      try {
+        if (!reader) reader = new Html5Qrcode("reader");
+
+        await reader.start(
+          { facingMode: "environment" },
+          {
+            fps: 10,
+            qrbox: (width, height) => {
+              const side = Math.floor(Math.min(width, height) * .72);
+              return { width: side, height: side };
+            },
+            aspectRatio: 1
+          },
+          onQrRead,
+          () => {}
+        );
+
+        readerActive = true;
+        $("idle").classList.add("hidden");
+        $("cameraButton").classList.add("hidden");
+        setStatus("Cámara lista");
+      } catch (error) {
+        readerActive = false;
+        $("cameraButton").classList.remove("hidden");
+        showMessage(
+          false,
+          "No se pudo abrir la cámara",
+          "Permití el uso de la cámara en el navegador y tocá “Activar cámara”."
+        );
+        setStatus(String(error || ""));
+      }
+    }
+
+    async function stopCamera() {
+      clearTimeout(restartTimer);
+      if (!reader || !readerActive) return;
+      try { await reader.stop(); } catch (_) {}
+      readerActive = false;
+      $("idle").classList.remove("hidden");
+    }
+
+    function onQrRead(code) {
+      if (processing || !terminalReady) return;
+      processing = true;
+      setStatus("Buscando practicante…");
+      try { reader.pause(true); } catch (_) {}
+
+      jsonp("identificar", { codigoQr: code })
+        .then(response => {
+          showMessage(Boolean(response.ok), response.mensaje, response.detalle || "");
+        })
+        .catch(error => {
+          showMessage(false, "No pudimos consultar el QR", error.message);
+        })
+        .finally(scheduleNextScan);
+    }
+
+    function scheduleNextScan() {
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(() => {
+        hideMessage();
+        processing = false;
+        setStatus("Cámara lista");
+        try {
+          reader.resume();
+        } catch (_) {
+          readerActive = false;
+          $("cameraButton").classList.remove("hidden");
+          startCamera();
+        }
+      }, 3500);
+    }
+
+    function showMessage(ok, title, detail) {
+      const box = $("message");
+      box.className = "message visible " + (ok ? "success" : "error");
+      $("messageTitle").textContent = title || (ok ? "¡Bienvenido/a!" : "Ocurrió un error");
+      $("messageDetail").textContent = detail || "";
+      setStatus("");
+    }
+
+    function hideMessage() {
+      $("message").className = "message";
+      $("messageTitle").textContent = "";
+      $("messageDetail").textContent = "";
+    }
+
+    function setStatus(text) {
+      $("status").textContent = text || "";
+    }
+  </script>
+</body>
+</html>
