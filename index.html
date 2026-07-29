@@ -238,19 +238,33 @@
               const side = Math.floor(Math.min(width, height) * .90);
               return { width: side, height: side };
             },
-            disableFlip: false,
-            videoConstraints: {
-              facingMode: "environment",
+            disableFlip: false
+          },
+          onQrRead,
+          () => {}
+        );
+
+        // Una vez abierta, pedimos mejor resolución y enfoque sin interferir
+        // con la validación interna de html5-qrcode.
+        try {
+          const video = document.querySelector("#reader video");
+          const track = video && video.srcObject
+            ? video.srcObject.getVideoTracks()[0]
+            : null;
+
+          if (track && typeof track.applyConstraints === "function") {
+            await track.applyConstraints({
               width: { ideal: 1920 },
               height: { ideal: 1080 },
               advanced: [
                 { focusMode: "continuous" }
               ]
-            }
-          },
-          onQrRead,
-          () => {}
-        );
+            });
+          }
+        } catch (_) {
+          // Algunas webcams no permiten cambiar resolución o enfoque.
+          // En ese caso se conserva automáticamente la configuración disponible.
+        }
 
         readerActive = true;
         $("idle").classList.add("hidden");
