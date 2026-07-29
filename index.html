@@ -220,17 +220,32 @@
       setStatus("Preparando la cámara…");
 
       try {
-        if (!reader) reader = new Html5Qrcode("reader");
+        if (!reader) {
+          reader = new Html5Qrcode("reader", {
+            formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+            experimentalFeatures: {
+              useBarCodeDetectorIfSupported: true
+            },
+            verbose: false
+          });
+        }
 
         await reader.start(
-          { facingMode: "environment" },
           {
-            fps: 10,
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            advanced: [
+              { focusMode: "continuous" }
+            ]
+          },
+          {
+            fps: 20,
             qrbox: (width, height) => {
-              const side = Math.floor(Math.min(width, height) * .72);
+              const side = Math.floor(Math.min(width, height) * .90);
               return { width: side, height: side };
             },
-            aspectRatio: 1
+            disableFlip: false
           },
           onQrRead,
           () => {}
